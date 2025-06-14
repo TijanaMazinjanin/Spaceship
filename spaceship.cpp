@@ -10,8 +10,8 @@ using namespace std;
 Renderer *renderer;
 
 Spaceship::Spaceship(unsigned int width, unsigned int height): Width(width), Height(height), State(IDLE),
-    Position(0.0f, 0.0f, 1.0f), Xrotation(-25.0f), Yrotation(15.0f),
-    CameraOffset(0.5f, 0.0f, 3.0f), CameraHeightOffset(1.0f), CurrentCameraMode(FIXED_VIEW)
+    Position(0.0f, 0.0f, 2.0f), Xrotation(0.0f), Yrotation(15.0f),
+    CameraOffset(0.5f, 0.0f, 3.0f), CameraHeightOffset(1.0f), CurrentCameraMode(FOLLOW_SHIP_VIEW)
     {
         for (int i = 0; i < 1024; ++i) {
                 Keys[i] = false;
@@ -77,20 +77,20 @@ void Spaceship::Render(){
         rotationMatrix = glm::rotate(rotationMatrix, glm::radians(this->Yrotation), glm::vec3(0.0f, 1.0f, 0.0f));
         rotationMatrix = glm::rotate(rotationMatrix, glm::radians(this->Xrotation), glm::vec3(1.0f, 0.0f, 0.0f));
 
-        // Transformiši CameraOffset vektor korišćenjem samo rotacije (bez translacije)
+
         glm::vec3 rotatedCameraOffset = glm::vec3(rotationMatrix * glm::vec4(CameraOffset.x, CameraOffset.y, CameraOffset.z, 0.0f));
 
-        // Dodaj rotirani offset i offset visine na poziciju broda
+
         glm::vec3 cameraPosition = this->Position + rotatedCameraOffset;
         cameraPosition.y += CameraHeightOffset; // Dodaj visinu iznad broda
 
-        // 4. Kreiraj view matricu koristeći glm::lookAt
-        view = glm::lookAt(cameraPosition, // Pozicija kamere
-                                        cameraTarget,   // Gleda u centar broda
-                                        glm::vec3(0.0f, 1.0f, 0.0f)); // Up vektor (uobičajeno Y-osa)
+
+        view = glm::lookAt(cameraPosition,
+                                        cameraTarget,
+                                        glm::vec3(0.0f, 1.0f, 0.0f));
     }
     else{
-        view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.5f, -5.0f));
+        view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
     }
 
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)this->Width / (float)this->Height, 0.1f, 100.0f);
@@ -100,6 +100,7 @@ void Spaceship::Render(){
     shipModel = glm::translate(shipModel, this->Position);
     shipModel = glm::rotate(shipModel, glm::radians(this->Yrotation), glm::vec3(0.0f, 1.0f, 0.0f));
     shipModel = glm::rotate(shipModel, glm::radians(this->Xrotation), glm::vec3(1.0f, 0.0f, 0.0f));
+    shipModel = glm::rotate(shipModel, glm::radians(-70.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 
     glDepthMask(GL_TRUE); // <-- RESTORE: Allow depth buffer writes for the 3D scene
     glEnable(GL_DEPTH_TEST);
@@ -108,11 +109,6 @@ void Spaceship::Render(){
     cubeShader.SetMatrix4("view", view);
 
     glm::mat4 shipRootModel = shipModel;
-    // shipRootModel = glm::translate(shipRootModel, this->Position); // Apply current position
-    // shipRootModel = glm::rotate(shipRootModel, glm::radians(this->Yrotation), glm::vec3(0.0f, 1.0f, 0.0f));  // Apply current yaw
-    // shipRootModel = glm::rotate(shipRootModel, glm::radians(this->Xrotation), glm::vec3(1.0f, 0.0f, 0.0f)); // Apply current pitch
-    // shipRootModel = glm::rotate(shipRootModel, glm::radians(-25.0f), glm::vec3(0.0f, 1.0f, 0.0f)); // Yaw
-    // shipRootModel = glm::rotate(shipRootModel, glm::radians(15.0f), glm::vec3(1.0f, 0.0f, 0.0f));  // Pitch
 
     // Cube - main spaceship body
     glm::mat4 bodyModel = shipRootModel;
@@ -147,7 +143,7 @@ void Spaceship::Render(){
     glm::mat4 stationModel = glm::mat4(1.0f);
     stationModel = glm::translate(stationModel, glm::vec3(0.0f, 0.0f, 0.0f));
 
-    stationModel = glm::scale(stationModel, glm::vec3(1.2f, 1.2f, 1.2f));
+    stationModel = glm::scale(stationModel, glm::vec3(1.5f, 1.5f, 1.5f));
     stationModel = glm::rotate(stationModel, 10.0f, glm::vec3(0.0f, 0.3f, 0.01f));
     renderer->DrawCube(cubeShader, stationModel, glm::vec4(0.5f, 0.5f, 0.5f, 1.0f), ResourceManager::GetTexture("water"), true);
 }
@@ -193,23 +189,14 @@ void Spaceship::Update(){
     float moveSpeed = 2.0f;
     float rotateSpeed = 90.0f;
 
-    // --- Kalkulacija vektora "napred" broda ---
-    // Prvo, kreiraj matricu rotacije koja odražava trenutnu orijentaciju broda (Yaw i Pitch).
-    // Nije potrebno uključiti translaciju ovde, samo rotaciju.
     glm::mat4 rotationMatrix = glm::mat4(1.0f);
     rotationMatrix = glm::rotate(rotationMatrix, glm::radians(this->Yrotation), glm::vec3(0.0f, 1.0f, 0.0f));
     rotationMatrix = glm::rotate(rotationMatrix, glm::radians(this->Xrotation), glm::vec3(1.0f, 0.0f, 0.0f));
 
-    // Pretpostavljamo da je lokalni "napred" vektor broda (0, 0, -1) ili (0, 0, 1).
-    // Većina 3D modela ima svoj "napred" vektor usmeren duž negativne Z-ose (ako model gleda "iz ekrana")
-    // ili pozitivne Z-ose (ako model gleda "u ekran").
-    // Ako se tvoj brod kreće unazad kada stisneš W, promeni ovaj vektor u (0.0f, 0.0f, 1.0f).
-    glm::vec3 localForward = glm::vec3(0.0f, 0.0f, -1.0f); // Primer: Negativna Z-osa je "napred"
+    glm::vec3 localForward = glm::vec3(0.0f, 0.0f, -1.0f);
 
-    // Transformiši lokalni "napred" vektor u svetske koordinate
     glm::vec3 worldForward = glm::normalize(glm::vec3(rotationMatrix * glm::vec4(localForward, 0.0f)));
 
-    // --- Kretanje napred/nazad (W/S) ---
     if (this->Keys[GLFW_KEY_W])
     {
         this->Position += worldForward * moveSpeed * dt;
@@ -219,8 +206,6 @@ void Spaceship::Update(){
         this->Position -= worldForward * moveSpeed * dt;
     }
 
-    // --- Rotiranje levo/desno (A/D) ---
-    // Ova logika ostaje ista, jer menja this->Yaw direktno.
     if (this->Keys[GLFW_KEY_A])
     {
         this->Yrotation += rotateSpeed * dt;
@@ -230,7 +215,6 @@ void Spaceship::Update(){
         this->Yrotation -= rotateSpeed * dt;
     }
 
-    // Ograniči yaw na opseg [0, 360) da ne raste unedogled
     if (this->Yrotation > 360.0f) this->Yrotation -= 360.0f;
     if (this->Yrotation < 0.0f) this->Yrotation += 360.0f;
 }
